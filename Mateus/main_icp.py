@@ -72,10 +72,12 @@ o3d.io.write_point_cloud(filename = "SAVI_Mateus/Aula08/tum_dataset/pointcloud2.
                             print_progress = False)
 
 
-# paint points to get a better visualization
+#----------------- Display raw point clouds with different colors ----------#
+
+# # paint points to get a better visualization
 # pcd1.paint_uniform_color([1, 0, 0])  # reg, green, blue
 # pcd2.paint_uniform_color([0, 0, 1])
-entities = [pcd1, pcd2, axes_mesh]
+# entities = [pcd1, pcd2, axes_mesh]
 
 # # Draw the geometries
 # o3d.visualization.draw_geometries(entities,
@@ -84,13 +86,15 @@ entities = [pcd1, pcd2, axes_mesh]
 #                                 up=view['trajectory'][0]['up'],
 #                                 zoom=view['trajectory'][0]['zoom'],)
 
+#---------------------------------------------------------------------------#
+
 # Inicial transformation matrix obtained externally
 
-trans_init = np.asarray([[0.996857583523, -0.047511439770, -0.063385106623, 0.120132803917],
+trans_ext = np.asarray([[0.996857583523, -0.047511439770, -0.063385106623, 0.120132803917],
                         [0.047460384667, 0.998870432377, -0.002311720978, 0.130328208208],
                         [0.063423343003, -0.000703825208, 0.997986435890, 0.168358176947], [0, 0, 0, 1]])
 
-# Function to draw both point clouds 
+# Function to draw both point clouds transformed with transformation matrix
 
 def draw_registration_result(source, target, transformation):
     source_temp = copy.deepcopy(source)
@@ -104,17 +108,78 @@ def draw_registration_result(source, target, transformation):
                                       lookat=[1.6784, 2.0612, 1.4451],
                                       up=[-0.3402, -0.9189, -0.1996])
 
-# Show the 2 Point Clouds with the inicial external transformation   
+#Show the 2 Point Clouds with the inicial external transformation   
 
-# draw_registration_result(pcd2, pcd1, trans_init)
+# draw_registration_result(pcd2, pcd1, trans_ext)
 
-# ---------- Point to Point ICP -----------------------
+#---------------------- Fast Global Registration ---------------------------------#
+
+def preprocess_point_cloud(pcd, voxel_size):
+    print(":: Downsample with a voxel size %.3f." % voxel_size)
+    pcd_down = pcd.voxel_down_sample(voxel_size)
+
+    radius_normal = voxel_size * 2
+    print(":: Estimate normal with search radius %.3f." % radius_normal)
+    pcd_down.estimate_normals(
+        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
+
+    radius_feature = voxel_size * 5
+    print(":: Compute FPFH feature with search radius %.3f." % radius_feature)
+    pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+        pcd_down,
+        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100))
+    return pcd_down, pcd_fpfh
+
+
+def prepare_dataset(voxel_size):
+    print(":: Load two point clouds and disturb initial pose.")
+
+    demo_icp_pcds = o3d.data.DemoICPPointClouds()
+    source = pcd2
+    target = pcd1
+    trans_init = np.asarray([[0.0, 0.0, 1.0, 0.0], [1.0, 0.0, 0.0, 0.0],
+                             [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
+    source.transform(trans_init)
+    draw_registration_result(source, target, np.identity(4))
+
+    source_down, source_fpfh = preprocess_point_cloud(source, voxel_size)
+    target_down, target_fpfh = preprocess_point_cloud(target, voxel_size)
+    return source, target, source_down, target_down, source_fpfh, target_fpfh
+
+voxel_size = 0.005  # means 5cm for this dataset
+source, target, source_down, target_down, source_fpfh, target_fpfh = prepare_dataset(
+    voxel_size)
+
+def execute_fast_global_registration(source_down, target_down, source_fpfh,
+                                     target_fpfh, voxel_size):
+    distance_threshold = voxel_size * 0.5
+    print(":: Apply fast global registration with distance threshold %.3f" \
+            % distance_threshold)
+    result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+        source_down, target_down, source_fpfh, target_fpfh,
+        o3d.pipelines.registration.FastGlobalRegistrationOption(
+            maximum_correspondence_distance=distance_threshold))
+    return result
+
+result_fast = execute_fast_global_registration(source_down, target_down,
+                                               source_fpfh, target_fpfh,
+                                               voxel_size)
+
+print(result_fast)
+draw_registration_result(source_down, target_down, result_fast.transformation)
+
+trans_registration = result_fast.transformation
+
+#---------------------------------------------------------------------------------#
+
+
+# ----------------------- Point to Point ICP -------------------------------------#
 # The point cloud source is the one transformed by the calculated trasform matrix
 
 threshold = 0.1
 
 print("Apply point-to-point ICP")
-reg_p2p = o3d.pipelines.registration.registration_icp(pcd2, pcd1, threshold, trans_init,
+reg_p2p = o3d.pipelines.registration.registration_icp(pcd2, pcd1, threshold, trans_registration,
     o3d.pipelines.registration.TransformationEstimationPointToPoint(),
     o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000))
 print(reg_p2p)
