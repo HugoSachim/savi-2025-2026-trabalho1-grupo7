@@ -98,7 +98,7 @@ def draw_geometries(pcd1,pcd2,view ,paint, name):
 draw_geometries(pcd1,pcd2, view, False, "Original")
 
 # # Downsampling
-voxel_size = 0.025 #0.015 meters
+voxel_size = 0.025 #0.025 meters
 #downsampled_point_cloud
 dpcd1 = deepcopy(pcd1)
 dpcd2 = deepcopy(pcd2)
@@ -155,7 +155,7 @@ def translation_rotation_to_transformation(rot_trans):
     -> 4x4 matriz homogénea
 
     R.from_rotvec(xi[:3]) cria uma rotação a partir de um vetor rotação (axis-angle).
-    A direção indica o eixo.
+    A direção indica o eixo. euler
     O comprimento é o ângulo (em radianos).
     as_matrix() converte para matriz 3×3.
     """
@@ -176,29 +176,44 @@ def transformation_to_translation_rotation(trans):
     return np.concatenate([rotvec, t])
 
 def error_target_source(pcd_source, pcd_target, keep_ratio=0.90): #ratio para tirar outliners
+    # start = time.time() 
     kdtree = o3d.geometry.KDTreeFlann(pcd_target)
+    # end = time.time()
+    # elapsed = end - start
+    # print(f"Execution time kd tree: {elapsed:.6f} seconds")
 
     src_pts = np.asarray(pcd_source.points)
     tgt_pts = np.asarray(pcd_target.points)
 
     residuals = []
 
+    # start1 = time.time() 
     for p in src_pts:
         [_, idx, _] = kdtree.search_knn_vector_3d(p, 1)
         tgt_p = tgt_pts[idx[0]]
         diff = p - tgt_p
-        total_squared_distance = np.sum(diff**2)
+        total_squared_distance = np.sum(diff**2) #distancia euclidiana
         residuals.append(total_squared_distance)
+    # end1 = time.time()
+    # elapsed1 = end1 - start1
+    # print(f"Execution time loop for: {elapsed1:.6f} seconds")
 
     residuals = np.array(residuals)
 
-    # 🔹 Keep only the lowest X% of distances (best matches)
+    # # 🔹 Keep only the lowest X% of distances (best matches)
+    # n_keep = int(len(residuals) * keep_ratio)
+    # residuals = np.sort(residuals)[:n_keep]
+
     n_keep = int(len(residuals) * keep_ratio)
-    residuals = np.sort(residuals)[:n_keep]
+    threshold = np.partition(residuals, n_keep-1)[n_keep-1]  # find cutoff
+    residuals = residuals[residuals <= threshold]
+
+    # n_keep = int(len(residuals) * keep_ratio)
+    # residuals = residuals[:n_keep]
 
     return residuals
 
-def view_trans(pcd_source, pcd_target, view):
+def view_trans(pcd_source, pcd_target, view, paint):
     traj = view["trajectory"][0]
     front  = traj["front"]
     lookat = traj["lookat"]
@@ -207,6 +222,10 @@ def view_trans(pcd_source, pcd_target, view):
     
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name="Visualização rápida")
+
+    if paint:
+        pcd_target.paint_uniform_color([0, 0.651, 0.929])  # reg, green, blue
+        pcd_source.paint_uniform_color([1, 0.706, 0])
 
     vis.add_geometry(pcd_target)   # primeiro
     vis.add_geometry(pcd_source)   # segundo
@@ -246,7 +265,7 @@ def objectiveFunction(params, shared_mem):
     total_squared_error = np.sum(error**2)   
     print('Error = ' + str(total_squared_error))
 
-    view_trans(pcd_source, pcd_target, view)
+    #view_trans(pcd_source, pcd_target, view, False)
 
     #print('one more iteration')
     return error
@@ -258,7 +277,7 @@ shared_mem = {'pcd_target': dpcd1, 'pcd_source': dpcd2, 'view': view}
 initial_params = transformation_to_translation_rotation(trans_init)
 #print(initial_params)
 #initial_params = [-0.00664098, 0.16199477, 0.1, -0.90153604, -0.003, 0.3]
-#initial_params = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#initial_params = [0.0, 0.02, 0.0, 1.0, 1.0, 1.0]
 
 
 #error = objectiveFunction(initial_params, shared_mem)
