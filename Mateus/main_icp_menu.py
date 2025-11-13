@@ -47,7 +47,7 @@ class ICPViewer(QMainWindow):
         layout.addWidget(btn_rb)
 
         btn_yg = QPushButton("Amarelo e Verde")
-        btn_yg.clicked.connect(lambda: self.set_color_mode("yellowgreen"))
+        btn_yg.clicked.connect(lambda: self.set_color_mode("purplegreen"))
         layout.addWidget(btn_yg)
 
         container = QWidget()
@@ -77,8 +77,8 @@ class ICPViewer(QMainWindow):
         elif self.color_mode == "redblue":
             src.paint_uniform_color([1, 0, 0])   # vermelho
             tgt.paint_uniform_color([0, 0, 1])   # azul
-        elif self.color_mode == "yellowgreen":
-            src.paint_uniform_color([1, 1, 0])   # amarelo
+        elif self.color_mode == "purplegreen":
+            src.paint_uniform_color([1, 0, 1])   # amarelo
             tgt.paint_uniform_color([0, 1, 0])   # verde
 
         axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)

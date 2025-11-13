@@ -7,6 +7,103 @@ import threading
 from scipy.spatial.transform import Rotation
 from scipy.optimize import least_squares
 from functools import partial
+import pyvista as pv
+import pyvistaqt as pvqt
+from pyvistaqt import BackgroundPlotter
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QLabel
+import sys
+
+# ----- Classe da interface -----
+class ICPViewer(QMainWindow):
+    def __init__(self, pcd1, pcd2, transforms, titles):
+        super().__init__()
+        self.setWindowTitle("ICP Registration Step Viewer (Open3D)")
+        self.setGeometry(200, 100, 380, 350)
+
+        self.pcd1 = pcd1
+        self.pcd2 = pcd2
+        self.transforms = transforms
+        self.titles = titles
+        self.color_mode = "real"  # pode ser: real, redblue, yellowgreen
+        self.saved_view = None  # guarda a posição da câmara entre visualizações
+
+        # Layout principal
+        layout = QVBoxLayout()
+
+        # Título
+        label = QLabel("Visualizar etapas ICP")
+        layout.addWidget(label)
+
+        # Botões de etapas
+        for i, title in enumerate(titles):
+            btn = QPushButton(title)
+            btn.clicked.connect(lambda _, step=i: self.show_step(step))
+            layout.addWidget(btn)
+
+        layout.addWidget(QLabel("Modo de cores"))
+        # Botões de esquema de cores
+        btn_real = QPushButton("Cores reais (RGB)")
+        btn_real.clicked.connect(lambda: self.set_color_mode("real"))
+        layout.addWidget(btn_real)
+
+        btn_rb = QPushButton("Vermelho e Azul")
+        btn_rb.clicked.connect(lambda: self.set_color_mode("redblue"))
+        layout.addWidget(btn_rb)
+
+        btn_yg = QPushButton("Amarelo e Verde")
+        btn_yg.clicked.connect(lambda: self.set_color_mode("purplegreen"))
+        layout.addWidget(btn_yg)
+
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+    # ----- Função para mudar modo de cores -----
+    def set_color_mode(self, mode):
+        self.color_mode = mode
+        print(f">> Modo de cor alterado para: {mode}")
+
+    # ----- Função para mostrar etapa específica -----
+    def show_step(self, step):
+        transformation = self.transforms[step]
+        title = self.titles[step]
+        print(f">> A mostrar: {title}")
+
+        # Copiar para não alterar os originais
+        src = copy.deepcopy(self.pcd2)
+        tgt = copy.deepcopy(self.pcd1)
+        src.transform(transformation)
+
+        # Aplicar esquema de cores
+        if self.color_mode == "real":
+            # Mantém cores RGB reais
+            pass
+        elif self.color_mode == "redblue":
+            src.paint_uniform_color([1, 0, 0])   # vermelho
+            tgt.paint_uniform_color([0, 0, 1])   # azul
+        elif self.color_mode == "purplegreen":
+            src.paint_uniform_color([1, 0, 1])   # amarelo
+            tgt.paint_uniform_color([0, 1, 0])   # verde
+
+        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+
+        # Criar visualizador interativo e manter câmara entre visualizações
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name=title, width=1280, height=720)
+        vis.add_geometry(src)
+        vis.add_geometry(tgt)
+        vis.add_geometry(axes)
+
+        ctr = vis.get_view_control()
+        if self.saved_view is not None:
+            ctr.convert_from_pinhole_camera_parameters(self.saved_view)
+        else:
+            self.saved_view = ctr.convert_to_pinhole_camera_parameters()
+
+        vis.run()
+        # Guardar o estado da câmara atual
+        self.saved_view = ctr.convert_to_pinhole_camera_parameters()
+        vis.destroy_window()
 
 # ---------- CONFIGURAÇÃO DE CÂMARA ----------
 view = {
@@ -177,7 +274,7 @@ def use_real_colors(vis):
 
 def stop_optimization(vis):
     shared['stop'] = True
-    print("🚨 Otimização abortada pelo utilizador.")
+    print("Otimização abortada pelo utilizador.")
     return False
 
 # Teclas:
@@ -208,6 +305,7 @@ try:
         vis.update_renderer()
         time.sleep(0.03)
 
+    # --- Após terminar a otimização ---
     final = shared.get('latest_points', None)
     if final is not None:
         np.asarray(source_geom.points)[:] = final
@@ -217,34 +315,34 @@ try:
 
     print("Pressiona ESC ou fecha a janela para sair.")
     vis.run()
+
 finally:
     vis.destroy_window()
 
-# ---------- MOSTRAR RESULTADOS FINAIS ----------
-if not shared['stop']:
-    snapshots = shared['snapshots']
-    if len(snapshots) > 0:
-        print("A mostrar os principais passos da otimização...")
-        entities = [copy.deepcopy(dpcd1), copy.deepcopy(dpcd2)]
-        colors = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+# ---------- MATRIZ FINAL DE TRANSFORMAÇÃO ----------
+if shared.get("result") is not None:
+    final_params = shared["result"].x
+    trans_final = translation_rotation_to_transformation(final_params)
+    print("Transformação final estimada:\n", trans_final)
+else:
+    trans_final = np.eye(4)
+    print("A otimização não retornou resultado — a usar matriz identidade.")
 
-        for i, pts in enumerate(snapshots):
-            pcd_step = o3d.geometry.PointCloud()
-            pcd_step.points = o3d.utility.Vector3dVector(pts)
-            pcd_step.paint_uniform_color(colors[i % len(colors)])
-            entities.append(pcd_step)
+# ---------- INICIAR GUI ----------
+app = QApplication(sys.argv)
+transforms = [
+    np.eye(4),
+    trans_init,
+    trans_final
+]
+titles = [
+    "Nuvens Iniciais",
+    "Transformação Inicial",
+    "Resultado ICP"
+]
 
-        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-        entities.append(axes)
-        traj = view["trajectory"][0]
-        o3d.visualization.draw_geometries(
-            entities,
-            front=traj["front"],
-            lookat=traj["lookat"],
-            up=traj["up"],
-            zoom=traj["zoom"],
-            window_name="Passos da Otimização ICP"
-        )
-
+viewer = ICPViewer(pcd1, pcd2, transforms, titles)
+viewer.show()
+sys.exit(app.exec_())
 
 
