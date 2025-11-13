@@ -11,10 +11,24 @@ Antes do alinhamento, foi feita uma fase de pré-processamento das nuvens de pon
 Para execução é necessário as seguintes bibliotecas:
 open3d matplotlib numpy pyvista pyvistaqt PyQt5
 
-![Menu](images/menu.png)
-![Nuvens iniciais](images/nuvem_inicial.png)
-![Transformacao externa](images/transformacao_externa.png)
-![Transformacao com FGR](images/fast_global.png)
-![Resultado ICP](images/ICP.png)
-![Resultado ICP plane](images/ICP_plane.png)
-![Resultado ICP com diferentes cores](images/ICP_color.png)
+![Menu](images/menu.png)  
+*Interface principal do visualizador, com os botões para alternar etapas e cores.*
+
+![Nuvens iniciais](images/nuvem_inicial.png)  
+*Visualização das nuvens de pontos iniciais obtidas a partir das imagens RGB-D.*
+
+![Transformacao externa](images/transformacao_externa.png)  
+*Aplicação da transformação inicial obtida no CloudCompare.*
+
+![Transformacao com FGR](images/fast_global.png)  
+*Resultado do alinhamento inicial usando Fast Global Registration.*
+
+![Resultado ICP](images/ICP.png)  
+*Alinhamento refinado usando ICP Point-to-Point.*
+
+![Resultado ICP plane](images/ICP_plane.png)  
+*Alinhamento final usando ICP Point-to-Plane.*
+
+![Resultado ICP com diferentes cores](images/ICP_color.png)  
+*Visualização da mesma etapa com diferentes esquemas de cores para distinguir nuvem fonte e alvo.*
+
