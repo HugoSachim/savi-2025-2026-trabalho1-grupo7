@@ -1,203 +1,235 @@
 #!/usr/bin/env python3
-# shebang line for linux / mac
 
 import open3d as o3d
 from matplotlib import pyplot as plt
 import numpy as np
 import copy
 from copy import deepcopy
-import time
+import pyvista as pv
+import pyvistaqt as pvqt
+from pyvistaqt import BackgroundPlotter
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QLabel
+import sys
 
-view = {
-	"class_name" : "ViewTrajectory",
-	"interval" : 29,
-	"is_loop" : False,
-	"trajectory" : 
-	[
-		{
-			"boundingbox_max" : [ 2.1947980721791587, 0.98024508257841203, 4.4420065482432269 ],
-			"boundingbox_min" : [ -2.5292977056043364, -1.1010999520619711, 1.4601356643334618 ],
-			"field_of_view" : 60.0,
-			"front" : [ -0.44990825844154053, 0.42727035899712068, -0.78423376572841585 ],
-			"lookat" : [ -1.5100770025260728, 0.28706664764620715, 1.6367510876634088 ],
-			"up" : [ 0.0037591866583305822, -0.87721395852113138, -0.48008492945660647 ],
-			"zoom" : 0.34589999999999987
-		}
-	],
-	"version_major" : 1,
-	"version_minor" : 0
-}
+# ----- Classe da interface -----
+class ICPViewer(QMainWindow):
+    def __init__(self, pcd1, pcd2, transforms, titles):
+        super().__init__()
+        self.setWindowTitle("ICP Registration Step Viewer (Open3D)")
+        self.setGeometry(200, 100, 380, 350)
 
-# Open RGB file 1
-filename_rgb1 = "./tum_dataset/rgb/1.png"
-rgb1 = o3d.io.read_image(filename_rgb1)
+        self.pcd1 = pcd1
+        self.pcd2 = pcd2
+        self.transforms = transforms
+        self.titles = titles
+        self.color_mode = "real"  # pode ser: real, redblue, yellowgreen
+        self.saved_view = None  # guarda a posição da câmara entre visualizações
 
-# Open depth file 1
-filename_depth1 = "./tum_dataset/depth/1.png"
-depth1 = o3d.io.read_image(filename_depth1)
+        # Layout principal
+        layout = QVBoxLayout()
 
-# Create the rgbd image for file 1
-rgbd1 = o3d.geometry.RGBDImage.create_from_tum_format(rgb1, depth1)
-print(rgbd1)
+        # Título
+        label = QLabel("Visualizar etapas ICP")
+        layout.addWidget(label)
 
-# Open RGB file 2
-filename_rgb2 = './tum_dataset/rgb/2.png'
-rgb2 = o3d.io.read_image(filename_rgb2)
+        # Botões de etapas
+        for i, title in enumerate(titles):
+            btn = QPushButton(title)
+            btn.clicked.connect(lambda _, step=i: self.show_step(step))
+            layout.addWidget(btn)
 
-# Open depth flie 2
-filename_depth2 = './tum_dataset/depth/2.png'
-depth2 = o3d.io.read_image(filename_depth2)
+        layout.addWidget(QLabel("Modo de cores"))
+        # Botões de esquema de cores
+        btn_real = QPushButton("Cores reais (RGB)")
+        btn_real.clicked.connect(lambda: self.set_color_mode("real"))
+        layout.addWidget(btn_real)
 
-# Create the rgbd image for file 2
-rgbd2 = o3d.geometry.RGBDImage.create_from_tum_format(rgb2, depth2)
-print(rgbd2)
+        btn_rb = QPushButton("Vermelho e Azul")
+        btn_rb.clicked.connect(lambda: self.set_color_mode("redblue"))
+        layout.addWidget(btn_rb)
 
-# Obtain the point cloud from the rgbd images
-pcd1 = o3d.geometry.PointCloud.create_from_rgbd_image(
-    rgbd1, o3d.camera.PinholeCameraIntrinsic(
-        o3d.camera.PinholeCameraIntrinsicParameters.PrimeSenseDefault))
+        btn_yg = QPushButton("Amarelo e Verde")
+        btn_yg.clicked.connect(lambda: self.set_color_mode("yellowgreen"))
+        layout.addWidget(btn_yg)
 
-pcd2 = o3d.geometry.PointCloud.create_from_rgbd_image(
-    rgbd2, o3d.camera.PinholeCameraIntrinsic(
-        o3d.camera.PinholeCameraIntrinsicParameters.PrimeSenseDefault))
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
 
-# Save the point cloud generated to the program folder
+    # ----- Função para mudar modo de cores -----
+    def set_color_mode(self, mode):
+        self.color_mode = mode
+        print(f">> Modo de cor alterado para: {mode}")
 
-o3d.io.write_point_cloud(filename = "pointcloud1.ply", pointcloud = pcd1, 
-                            format = 'auto', write_ascii = False, 
-                            compressed = False, 
-                            print_progress = False)
+    # ----- Função para mostrar etapa específica -----
+    def show_step(self, step):
+        transformation = self.transforms[step]
+        title = self.titles[step]
+        print(f">> A mostrar: {title}")
 
-o3d.io.write_point_cloud(filename = "pointcloud2.ply", pointcloud = pcd2, 
-                            format = 'auto', write_ascii = False, 
-                            compressed = False, 
-                            print_progress = False)
+        # Copiar para não alterar os originais
+        src = copy.deepcopy(self.pcd2)
+        tgt = copy.deepcopy(self.pcd1)
+        src.transform(transformation)
 
-# # Draw the original geometries
-def draw_geometries(pcd1,pcd2,view ,paint, name):
-    #paint False for original color, True for painted
-    axes_mesh = o3d.geometry.TriangleMesh().create_coordinate_frame(size=0.5)
-    pcd1_paint= deepcopy(pcd1)
-    pcd2_paint= deepcopy(pcd2)
-    if paint:
-        pcd1_paint.paint_uniform_color([0, 0.651, 0.929])  # reg, green, blue
-        pcd2_paint.paint_uniform_color([1, 0.706, 0])
-    entities = [pcd1_paint, pcd2_paint, axes_mesh]
+        # Aplicar esquema de cores
+        if self.color_mode == "real":
+            # Mantém cores RGB reais
+            pass
+        elif self.color_mode == "redblue":
+            src.paint_uniform_color([1, 0, 0])   # vermelho
+            tgt.paint_uniform_color([0, 0, 1])   # azul
+        elif self.color_mode == "yellowgreen":
+            src.paint_uniform_color([1, 1, 0])   # amarelo
+            tgt.paint_uniform_color([0, 1, 0])   # verde
 
-    o3d.visualization.draw_geometries(entities,
-                                        front=view['trajectory'][0]['front'],
-                                        lookat=view['trajectory'][0]['lookat'],
-                                        up=view['trajectory'][0]['up'],
-                                        zoom=view['trajectory'][0]['zoom'],
-                                        window_name=name)
+        axes = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
 
-draw_geometries(pcd1,pcd2, view, False, "Original")
+        # Criar visualizador interativo e manter câmara entre visualizações
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name=title, width=1280, height=720)
+        vis.add_geometry(src)
+        vis.add_geometry(tgt)
+        vis.add_geometry(axes)
 
-# # Downsampling
-voxel_size = 0.015 #0.005 meters
-#downsampled_point_cloud
-dpcd1 = deepcopy(pcd1)
-dpcd2 = deepcopy(pcd2)
-dpcd1 = dpcd1.voxel_down_sample(voxel_size)
-dpcd2 = dpcd2.voxel_down_sample(voxel_size)
-print('downsampled_point_cloud 1 from' + str(pcd1) + 'to ' + str(dpcd1))
-print('downsampled_point_cloud 2 from' + str(pcd2) + 'to ' + str(dpcd2))
+        ctr = vis.get_view_control()
+        if self.saved_view is not None:
+            ctr.convert_from_pinhole_camera_parameters(self.saved_view)
+        else:
+            self.saved_view = ctr.convert_to_pinhole_camera_parameters()
 
-draw_geometries(dpcd1,dpcd2, view, False, "Downsampling")
-
+        vis.run()
+        # Guardar o estado da câmara atual
+        self.saved_view = ctr.convert_to_pinhole_camera_parameters()
+        vis.destroy_window()
 
 
-# Inicial transformation matrix obtained externally
+# ----- Função principal -----
+def main():
+    # --- Carregar imagens RGB-D e gerar point clouds ---
+    filename_rgb1 = "./tum_dataset/rgb/1.png"
+    filename_depth1 = "./tum_dataset/depth/1.png"
+    filename_rgb2 = "./tum_dataset/rgb/2.png"
+    filename_depth2 = "./tum_dataset/depth/2.png"
 
-# trans_init = np.asarray([[0.996857583523, -0.047511439770, -0.063385106623, 0.120132803917],
-#                         [0.047460384667, 0.998870432377, -0.002311720978, 0.130328208208],
-#                         [0.063423343003, -0.000703825208, 0.997986435890, 0.168358176947], [0, 0, 0, 1]])
+    rgb1 = o3d.io.read_image(filename_rgb1)
+    depth1 = o3d.io.read_image(filename_depth1)
+    rgb2 = o3d.io.read_image(filename_rgb2)
+    depth2 = o3d.io.read_image(filename_depth2)
 
-trans_init = np.asarray([[0.983646262139, -0.081055920198, 0.160841439876, -0.901536037487],
+    rgbd1 = o3d.geometry.RGBDImage.create_from_tum_format(rgb1, depth1)
+    rgbd2 = o3d.geometry.RGBDImage.create_from_tum_format(rgb2, depth2)
+    #print('1')
+    intrinsics = o3d.camera.PinholeCameraIntrinsic(
+        o3d.camera.PinholeCameraIntrinsicParameters.PrimeSenseDefault
+    )
+    #print('2')
+    pcd1 = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd1, intrinsics)
+    pcd2 = o3d.geometry.PointCloud.create_from_rgbd_image(rgbd2, intrinsics)
+
+    o3d.io.write_point_cloud(filename = "pointcloud1.ply", pointcloud = pcd1, 
+                                format = 'auto', write_ascii = False, 
+                                compressed = False, 
+                                print_progress = False)
+
+    o3d.io.write_point_cloud(filename = "pointcloud2.ply", pointcloud = pcd2, 
+                                format = 'auto', write_ascii = False, 
+                                compressed = False, 
+                                print_progress = False)
+
+    # --- Transformação inicial (obtida externamente) ---
+    # trans_ext = np.asarray([
+    #     [0.996857583523, -0.047511439770, -0.063385106623, 0.120132803917],
+    #     [0.047460384667, 0.998870432377, -0.002311720978, 0.130328208208],
+    #     [0.063423343003, -0.000703825208, 0.997986435890, 0.168358176947],
+    #     [0, 0, 0, 1]
+
+    trans_ext = np.asarray([[0.983646262139, -0.081055920198, 0.160841439876, -0.901536037487],
                          [0.079983057301, 0.996709553274, 0.013144464908, -0.001155507942],
                          [-0.161377636385, -0.000064913673, 0.986892726825, 0.136104476608], 
                          [0.0, 0.0, 0.0, 1.0]])
 
-# Function to draw both point clouds 
+    # --- Fast Global Registration ---
+    def preprocess_point_cloud(pcd, voxel_size, max_neighbors):
+        pcd_down = pcd.voxel_down_sample(voxel_size)
+        pcd_down.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size, max_nn=max_neighbors))
+        pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+            pcd_down,
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2.5, max_nn=max_neighbors))
+        pcd_normals = pcd_down
+        pcd_normals.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size, max_nn=max_neighbors))
+        pcd_normals.orient_normals_consistent_tangent_plane(5)
+        return pcd_down, pcd_fpfh, pcd_normals
+    #print('3')
+    voxel_size = 0.025
+    max_neighbors = 20
+    print('A calcular downsampled, normals e características FPFH')
+    source_down, source_fpfh, source_normals = preprocess_point_cloud(pcd2, voxel_size, max_neighbors)
+    target_down, target_fpfh, target_normals = preprocess_point_cloud(pcd1, voxel_size, max_neighbors)
+    print('downsampled from' + str(pcd2) + ' to ' + str(source_down))
+    print('downsampled from' + str(pcd1) + ' to ' + str(target_down))
 
-def draw_registration_result(source, target, transformation, view, paint, name):
-    axes_mesh = o3d.geometry.TriangleMesh().create_coordinate_frame(size=0.5)
-    source_temp = copy.deepcopy(source)
-    target_temp = copy.deepcopy(target)
-    source_temp.transform(transformation)
-    if paint:
-        target_temp.paint_uniform_color([0, 0.651, 0.929])  # reg, green, blue
-        source_temp.paint_uniform_color([1, 0.706, 0])
-    entities = [source_temp, target_temp, axes_mesh]
-    o3d.visualization.draw_geometries([source_temp, target_temp],
-                                      zoom=view['trajectory'][0]['zoom'],
-                                      front=view['trajectory'][0]['front'],
-                                      lookat=view['trajectory'][0]['lookat'],
-                                      up=view['trajectory'][0]['up'],
-                                      window_name=name)
 
-# Show the 2 Point Clouds with the inicial external transformation   
-draw_registration_result(pcd2, pcd1, trans_init, view, False, 'Inicial transformation')
-
-# ---------- Point to Point ICP -----------------------
-# The point cloud source is the one transformed by the calculated trasform matrix
-
-max_correspondence_distance = 0.1
-
-print("Apply point-to-point ICP")
-reg_p2p = o3d.pipelines.registration.registration_icp(
-    dpcd2,
-    dpcd1,
-    max_correspondence_distance,
-    init=trans_init,
-    estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-    criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
-)
-print(reg_p2p)
-print("Transformation is:")
-print(reg_p2p.transformation)
-draw_registration_result(dpcd2, dpcd1, reg_p2p.transformation, view, False, 'ICP downsampling point to point')
-# show with all the points
-
-def estimate_normals(pcd):
-    pcd_normal = deepcopy(pcd)
-    pcd_normal.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(
-            radius=0.02,   # raio de procura dos vizinhos (em metros)
-            max_nn=5     # máximo de vizinhos a considerar
-        )
+    result_fast = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+        source_down, target_down, source_fpfh, target_fpfh,
+        o3d.pipelines.registration.FastGlobalRegistrationOption(
+            maximum_correspondence_distance=voxel_size)
     )
-    pcd_normal.orient_normals_consistent_tangent_plane(5)
-    return pcd_normal
+    trans_registration = result_fast.transformation
+    # trans_registration = trans_ext
+    #print('4')
+    print("Transformação inicial:")
+    print(trans_registration)
 
-dpcd2_normal = estimate_normals(dpcd2)
-dpcd1_normal = estimate_normals(dpcd1)
+    # --- ICP refinamento ---
+    threshold = 0.1
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        pcd2, pcd1, threshold, trans_ext,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
+    )
+    trans_icp = reg_p2p.transformation
 
-#draw_registration_result(dpcd2_normal, dpcd1_normal, reg_p2p.transformation, view, False, 'ICP downsampling with normals')
+    print("Transformação final (ICP):")
+    print(trans_icp)
 
-draw_registration_result(pcd2, pcd1, reg_p2p.transformation, view, False, 'ICP point to point')
+    # --- ICP refinamento point to plane ---
+    reg_p2plane = o3d.pipelines.registration.registration_icp(
+        source_normals, target_normals, threshold, trans_ext,
+        o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
+    )
+    trans_icp_plane = reg_p2plane.transformation
 
-# pcd2_normal = estimate_normals(pcd2)
-# pcd1_normal = estimate_normals(pcd1)
-#draw_registration_result(pcd2_normal, pcd1_normal, reg_p2p.transformation, view, False, 'ICP with normals')
+    print("Transformação final (ICP plane):")
+    print(trans_icp_plane)
 
-# Default: fitness = 0,912 inlier = 0,0736
-# 100 iter: fitness = 0,936 inlier = 0,0490
+    # --- Iniciar GUI ---
+    app = QApplication(sys.argv)
+    transforms = [
+        np.eye(4),
+        trans_ext,
+        trans_registration,
+        trans_icp,
+        trans_icp_plane 
+    ]
+    titles = [
+        "Nuvens Iniciais",
+        "Transformação Inicial",
+        "Fast Global Registration",
+        "Resultado ICP",
+        "Resultado ICP Plane"
+    ]
 
-print("Apply point-to-plane ICP")
-reg_p2plane = o3d.pipelines.registration.registration_icp(
-    dpcd2_normal, 
-    dpcd1_normal, 
-    max_correspondence_distance, 
-    init=trans_init,
-    estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-    criteria=o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000),
-)
-print(reg_p2plane)
-print("Transformation is:")
-print(reg_p2plane.transformation)
-draw_registration_result(dpcd2_normal, dpcd1_normal, reg_p2plane.transformation, view, False, 'ICP downsampling point to plane')
-# show with all the points
+    viewer = ICPViewer(pcd1, pcd2, transforms, titles)
+    viewer.show()
+    sys.exit(app.exec_())
 
-draw_registration_result(pcd2, pcd1, reg_p2plane.transformation, view, False, 'ICP point to plane')
 
+if __name__ == "__main__":
+    main()
+
+
+   

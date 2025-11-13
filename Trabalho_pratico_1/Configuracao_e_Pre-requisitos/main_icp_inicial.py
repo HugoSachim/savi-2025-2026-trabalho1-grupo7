@@ -94,7 +94,7 @@ def draw_geometries(pcd1,pcd2,view ,paint, name):
 draw_geometries(pcd1,pcd2, view, False, "Original")
 
 # # Downsampling
-voxel_size = 0.015 #0.005 meters
+voxel_size = 0.01 #0.005 meters
 #downsampled_point_cloud
 dpcd1 = deepcopy(pcd1)
 dpcd2 = deepcopy(pcd2)
@@ -109,14 +109,9 @@ draw_geometries(dpcd1,dpcd2, view, False, "Downsampling")
 
 # Inicial transformation matrix obtained externally
 
-# trans_init = np.asarray([[0.996857583523, -0.047511439770, -0.063385106623, 0.120132803917],
-#                         [0.047460384667, 0.998870432377, -0.002311720978, 0.130328208208],
-#                         [0.063423343003, -0.000703825208, 0.997986435890, 0.168358176947], [0, 0, 0, 1]])
-
-trans_init = np.asarray([[0.983646262139, -0.081055920198, 0.160841439876, -0.901536037487],
-                         [0.079983057301, 0.996709553274, 0.013144464908, -0.001155507942],
-                         [-0.161377636385, -0.000064913673, 0.986892726825, 0.136104476608], 
-                         [0.0, 0.0, 0.0, 1.0]])
+trans_init = np.asarray([[0.996857583523, -0.047511439770, -0.063385106623, 0.120132803917],
+                        [0.047460384667, 0.998870432377, -0.002311720978, 0.130328208208],
+                        [0.063423343003, -0.000703825208, 0.997986435890, 0.168358176947], [0, 0, 0, 1]])
 
 # Function to draw both point clouds 
 
@@ -137,7 +132,8 @@ def draw_registration_result(source, target, transformation, view, paint, name):
                                       window_name=name)
 
 # Show the 2 Point Clouds with the inicial external transformation   
-draw_registration_result(pcd2, pcd1, trans_init, view, False, 'Inicial transformation')
+
+# draw_registration_result(pcd2, pcd1, trans_init)
 
 # ---------- Point to Point ICP -----------------------
 # The point cloud source is the one transformed by the calculated trasform matrix
@@ -163,7 +159,7 @@ def estimate_normals(pcd):
     pcd_normal = deepcopy(pcd)
     pcd_normal.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(
-            radius=0.02,   # raio de procura dos vizinhos (em metros)
+            radius=0.01,   # raio de procura dos vizinhos (em metros)
             max_nn=5     # máximo de vizinhos a considerar
         )
     )
