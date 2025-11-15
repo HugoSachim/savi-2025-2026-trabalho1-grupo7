@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# shebang line for linux / mac
 
 import open3d as o3d
 import numpy as np
@@ -150,11 +149,11 @@ pcd2 = o3d.geometry.PointCloud.create_from_rgbd_image(
 
 # ---------- DOWNSAMPLING ----------
 voxel_size = 0.025
-voxel_size = 0.035
+print('A calcular downsampled')
 dpcd1 = copy.deepcopy(pcd1).voxel_down_sample(voxel_size)
 dpcd2 = copy.deepcopy(pcd2).voxel_down_sample(voxel_size)
-print('downsampled de ' + str(pcd1) + ' para ' + str(dpcd1))
-print('downsampled de ' + str(pcd2) + ' para ' + str(dpcd2))
+print('downsampled from' + str(pcd2) + ' to ' + str(dpcd2))
+print('downsampled from' + str(pcd1) + ' to ' + str(dpcd1))
 
 # ---------- MATRIZ DE TRANSFORMAÇÃO INICIAL ----------
 trans_init = np.asarray([
@@ -177,16 +176,35 @@ def transformation_to_translation_rotation(trans):
     rotvec = Rotation.from_matrix(R_mat).as_rotvec()
     return np.concatenate([rotvec, t])
 
-def error_target_source_points(src_pts, tgt_pts, keep_ratio=0.90):
-    kdtree = o3d.geometry.KDTreeFlann(o3d.geometry.PointCloud(o3d.utility.Vector3dVector(tgt_pts)))
-    residuals = np.empty(len(src_pts))
+# def error_target_source_points(src_pts, tgt_pts, shared_local, max_dist=0.05, switch_after=50):
+#     kdtree = o3d.geometry.KDTreeFlann(o3d.geometry.PointCloud(o3d.utility.Vector3dVector(tgt_pts)))
+#     residuals = np.empty(len(src_pts))
+#     for i, p in enumerate(src_pts):
+#         [_, idx, _] = kdtree.search_knn_vector_3d(p, 1)
+#         diff = p - tgt_pts[idx[0]]
+#         residuals[i] = np.sum(diff**2)
+#     n_keep = int(len(residuals) * keep_ratio)
+#     residuals = np.partition(residuals, n_keep - 1)[:n_keep]
+
+#     return residuals
+
+
+def error_target_source_points(src_pts, tgt_pts, max_dist=0.025):
+    kdtree = o3d.geometry.KDTreeFlann(
+        o3d.geometry.PointCloud(o3d.utility.Vector3dVector(tgt_pts))
+    )
+    
+    residuals = np.zeros(len(src_pts))  # mantém o mesmo tamanho
+
     for i, p in enumerate(src_pts):
-        [_, idx, _] = kdtree.search_knn_vector_3d(p, 1)
-        diff = p - tgt_pts[idx[0]]
-        residuals[i] = np.sum(diff**2)
-    n_keep = int(len(residuals) * keep_ratio)
-    threshold = np.partition(residuals, n_keep-1)[n_keep-1]
-    return residuals[residuals <= threshold]
+        [_, idx, dists] = kdtree.search_knn_vector_3d(p, 1)
+        if dists[0] <= max_dist:
+            diff = p - tgt_pts[idx[0]]
+            residuals[i] = np.sum(diff**2)
+        else:
+            residuals[i] = 1e-6  # não penaliza outliers
+    
+    return residuals
 
 
 # ---------- PONTOS ORIGINAIS ----------
@@ -213,25 +231,30 @@ def objective_opt(params, shared_local):
     shared_local['latest_points'] = transformed
 
     # Guardar snapshot a cada iteração importante
-    if len(shared_local['snapshots']) < 3:
+    if len(shared_local['snapshots']) < 2:
         shared_local['snapshots'].append(transformed.copy())
 
+    #residuals = error_target_source_points(transformed, target_pts_orig, keep_ratio=0.90)
+    
     residuals = error_target_source_points(transformed, target_pts_orig)
+    
     total_squared_error = np.sum(residuals**2)   
-    print('Erro = ' + str(total_squared_error))
-
+    print('Error = ' + str(total_squared_error))
     return residuals
 
 # ---------- THREAD DE OTIMIZAÇÃO ----------
 def run_optimization(initial_params, shared_local):
     print("Iniciando otimização...")
-    # Usar tolerâncias mais permissivas e loss robusta para não parar cedo
     res = least_squares(
-        partial(objective_opt, shared_local=shared_local),
-        initial_params,
+        fun=partial(objective_opt, shared_local=shared_local),
+        x0=initial_params,
         verbose=2,
-        max_nfev=1000
+        max_nfev=2000,       # aumenta o número máximo de avaliações
+        ftol=1e-8,           # tolerância para mudança do valor da função
+        xtol=1e-8,           # tolerância para mudança dos parâmetros
+        gtol=1e-8,           # tolerância para o gradiente
     )
+
     shared_local['result'] = res
     print("Otimização terminada.")
     return
@@ -302,7 +325,8 @@ vis.register_key_callback(ord("Q"), stop_optimization)
 # ---------- INICIAR THREAD DE ICP ----------
 initial_params = transformation_to_translation_rotation(trans_init)
 initial_params = [0,0,0,0,0,0]
-print('Parâmetros iniciais = ' + str(initial_params))
+#initial_params = [0,0.16,0.08,-0.9,0,0]
+print('Parâmetros iniciais (Rx, Ry, Rz, Tx, Ty, Tz) = ' + str(initial_params) )
 opt_thread = threading.Thread(target=run_optimization, args=(initial_params, shared), daemon=True)
 opt_thread.start()
 
@@ -339,14 +363,11 @@ finally:
 if shared.get("result") is not None:
     final_params = shared["result"].x
     trans_final = translation_rotation_to_transformation(final_params)
-    print("Transformação final estimada:\n", trans_final)
-    params_opti = shared['result'].x.tolist()
+    print("Transformação final:\n", trans_final)
+    
+    params_opti = shared["result"].x.tolist()
     text = str(params_opti)
     print('Melhores parâmetros (Rx, Ry, Rz, Tx, Ty, Tz) = ' + text )
-
-    with open("output_opti.txt", "w") as file:
-        file.write(text)
-
 else:
     trans_final = np.eye(4)
     print("A otimização não retornou resultado — a usar matriz identidade.")
