@@ -120,12 +120,6 @@ def create_sphere_pointcloud_from_array(center_with_radius, n_points=2000, inclu
     pcd.paint_uniform_color(color)
     return pcd
 
-def paint_sphere(pcd, color):
-    if color is None:
-        # cores reais: não pintar
-        return
-    pcd.paint_uniform_color(color)
-
 def compute_initial_sphere_params(pcd):
     points = np.asarray(pcd.points)
     center = points.mean(axis=0)
@@ -151,12 +145,12 @@ print("Initial sphere params:", initial_params)
 
 pcd_sphere_initial = create_sphere_pointcloud_from_array(initial_params, n_points=2000, color=[1,0,0])
 
-# Shared memory entre optimizer thread e loop de visualização
+# Dicionário usado para comunicar com o thread do visualizador
 shared = {
     'latest_sphere_points': np.asarray(pcd_sphere_initial.points).copy(),
     'stop': False,
     'result': None,
-    'snapshots': [],       # iremos guardar alguns snapshots (pontos) para o menu final
+    'snapshots': [],       # snapshots para as diferentes janelas do menu final
     'final_params': None
 }
 
@@ -171,7 +165,7 @@ def objectiveFunction(params, shared_mem):
     r = np.full(2000, float(center_with_radius[3]))
     points = center_with_radius[:3] + dirs * r[:,None]
 
-    # atualizar shared com os pontos atuais (para a UI desenhar)
+    # atualização dos pontos da esfera para o display
     shared_mem['latest_sphere_points'] = points
 
     # guardar os primeiros 3 snapshots (para menu final)
@@ -190,17 +184,13 @@ def run_optimization(initial_params, shared_local):
     shared_local['final_params'] = res.x
     print("Optimization finished. Result:", res.x)
 
-# -------------- Visualização em tempo real (janela única, sem flicker) --------------
-vis = o3d.visualization.VisualizerWithKeyCallback()
+# -------------- Visualização em tempo real  --------------
+vis = o3d.visualization.VisualizerWithKeyCallback()  # com keycallback para possibilitar o uso de teclas com funções
 vis.create_window("Sphere optimization (real-time)", width=1280, height=720)
 
-# Adicionar geometria estática (pcd_total) e a esfera que vamos atualizar in-place
+# Adicionar geometria estática (pcd_total) e a esfera que atualiza ao longo da otimização
 total_geom = copy.deepcopy(pcd_total)
 sphere_geom = copy.deepcopy(pcd_sphere_initial)
-# Mantemos as point clouds iniciais com as cores reais (não pintadas)
-# total_geom.paint_uniform_color([0, 0.651, 0.929])  # opcional para total - se preferes cores reais podes comentar
-# sphere_geom começa vermelho
-sphere_geom.paint_uniform_color([1, 0, 0])
 
 vis.add_geometry(total_geom)
 vis.add_geometry(sphere_geom)
@@ -223,7 +213,7 @@ def change_color_realtime(vis_local):
     vis_local.update_geometry(sphere_geom)
     return False
 
-vis.register_key_callback(ord("C"), change_color_realtime)
+vis.register_key_callback(ord("C"), change_color_realtime)  # ligar a tecla c à função de mudança de cor
 
 # Iniciar thread de otimização (background)
 opt_thread = threading.Thread(target=run_optimization, args=(initial_params, shared), daemon=True)
@@ -242,7 +232,7 @@ try:
         vis.update_renderer()
         time.sleep(0.03)
 
-    # garantir a última atualização
+    # garantir a última atualização após fim da otimização
     final_pts = shared.get('latest_sphere_points', None)
     if final_pts is not None:
         np.asarray(sphere_geom.points)[:] = final_pts
@@ -250,7 +240,7 @@ try:
         vis.poll_events()
         vis.update_renderer()
 
-    # Saving camera parameters for a smooth visualization between view windows
+    # guardar parâmetros de visualização para garantir uma troca de janelas
     saved_camera = ctr.convert_to_pinhole_camera_parameters()
 
     print("Optimization thread finished — close the window or wait to open menu.")
@@ -282,11 +272,12 @@ class FinalMenu(QMainWindow):
         self.setWindowTitle("Resultados e Visualizações (Menu)")
         self.setGeometry(200, 100, 420, 360)
         self.camera_params = camera_params
-        self.color_mode = "real"  # 'rb', 'yg', 'real'
+        self.color_mode = "real"  
 
-        layout = QVBoxLayout()
+        layout = QVBoxLayout()   # layout vertical para botões
         layout.addWidget(QLabel("Ver passos da otimização"))
-        # Botões das cenas
+
+        # Botões para visualização dos passos da otimização
         btn1 = QPushButton("Point clouds iniciais (desalinhadas)")
         btn1.clicked.connect(lambda: self.show_scene(1))
         layout.addWidget(btn1)
@@ -309,16 +300,12 @@ class FinalMenu(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-    def set_color_mode(self, mode):
-        self.color_mode = mode
-        print(f"Menu color mode set to: {mode}")
-
     def show_scene(self, idx):
         vis2 = o3d.visualization.VisualizerWithKeyCallback()
         title = ""
         sphere_copy = None
 
-        if idx == 1:
+        if idx == 1:  # 1ª janela mostra as nuvens de pontos originais
             title = "Point clouds iniciais"
             src = copy.deepcopy(pcd2)   
             tgt = copy.deepcopy(pcd1)
@@ -326,7 +313,7 @@ class FinalMenu(QMainWindow):
             vis2.add_geometry(tgt)
             vis2.add_geometry(src)
 
-        elif idx == 2:
+        elif idx == 2: # 2ª janela mostra as nuvens de pontos alinhadas
             title = "Point clouds alinhadas"
             src = copy.deepcopy(pcd_source_opti)
             tgt = copy.deepcopy(pcd1)
@@ -334,21 +321,21 @@ class FinalMenu(QMainWindow):
             vis2.add_geometry(tgt)
             vis2.add_geometry(src)
 
-        elif idx == 3:
+        elif idx == 3: # 3ª janela mostra as nuvens de pontos englobadas pela primeira iteração da esfera
             title = "Esfera inicial"
             vis2.create_window(window_name=title, width=1280, height=720)
             vis2.add_geometry(copy.deepcopy(total_geom))
             sphere_copy = copy.deepcopy(create_sphere_pointcloud_from_array(initial_params, n_points=2000, color=[1,0,0]))
             vis2.add_geometry(sphere_copy)
 
-        elif idx == 4:
+        elif idx == 4: # 4ª janela mostra a iteração final das nuvens de pontos englobadas pela esfera de raio menor
             title = "Esfera final"
             vis2.create_window(window_name=title, width=1280, height=720)
             vis2.add_geometry(copy.deepcopy(total_geom))
             sphere_copy = copy.deepcopy(pcd_sphere_final)
             vis2.add_geometry(sphere_copy)
 
-        # aplicar câmera guardada (se disponível)
+        # aplicar último ponto de visualização
         ctr2 = vis2.get_view_control()
         if self.camera_params is not None:
             try:
@@ -356,15 +343,6 @@ class FinalMenu(QMainWindow):
             except:
                 pass
 
-        # Aplicar cor escolhida pelo menu (aplica só se houver esfera nesta cena)
-        if sphere_copy is not None:
-            if self.color_mode == "rb":
-                sphere_copy.paint_uniform_color([1,0,0])
-            elif self.color_mode == "yg":
-                sphere_copy.paint_uniform_color([1,1,0])
-            elif self.color_mode == "real":
-                # não pintar => mantém cores originais da geometria
-                pass
 
             # bind da tecla 'C' para alternar cor ciclicamente nesta janela
             def change_color_vis2(vis_local):
