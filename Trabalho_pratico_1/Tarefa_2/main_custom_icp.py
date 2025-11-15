@@ -177,16 +177,18 @@ def transformation_to_translation_rotation(trans):
     rotvec = Rotation.from_matrix(R_mat).as_rotvec()
     return np.concatenate([rotvec, t])
 
-def error_target_source_points(src_pts, tgt_pts, keep_ratio=0.90):
+def error_target_source_points(src_pts, tgt_pts, keep_ratio=0.85):
     kdtree = o3d.geometry.KDTreeFlann(o3d.geometry.PointCloud(o3d.utility.Vector3dVector(tgt_pts)))
     residuals = np.empty(len(src_pts))
     for i, p in enumerate(src_pts):
         [_, idx, _] = kdtree.search_knn_vector_3d(p, 1)
         diff = p - tgt_pts[idx[0]]
         residuals[i] = np.sum(diff**2)
-    n_keep = int(len(residuals) * keep_ratio)
-    threshold = np.partition(residuals, n_keep-1)[n_keep-1]
-    return residuals[residuals <= threshold]
+    
+    percentage = keep_ratio * 100
+    mask = residuals <= np.percentile(residuals, percentage)
+    return residuals[mask]
+
 
 
 # ---------- PONTOS ORIGINAIS ----------
