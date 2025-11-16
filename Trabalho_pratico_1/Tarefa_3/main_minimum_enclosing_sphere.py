@@ -14,7 +14,6 @@ import pyvistaqt as pvqt
 from pyvistaqt import BackgroundPlotter
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, QLabel
 import sys
-import miniball
 
 # Dicionário com parâmetros da camâra
 view = {
@@ -136,7 +135,7 @@ def error_target_source(pcd, sphere_params, lambda_r=20): # lamda_r 20 para r gr
     excess = np.maximum(0, dists - radius)
     error_points = np.sum(excess)
     error_radius = lambda_r * radius
-    print('points ',error_points, 'radius', radius)
+    print(f"erro pontos {error_points:12.6f}  raio {radius:12.6f}")
     error = float(error_points + error_radius)
     return error
 
@@ -165,11 +164,6 @@ def objectiveFunction(params, shared_mem):
     # gerar pontos da esfera (superfície) a partir de params    
     pcd = create_sphere_pointcloud_from_array(center_with_radius, rng = 1)
     points = np.asarray(pcd.points)    # rng = np.random.default_rng(0)
-    # dirs = rng.normal(size=(2000,3))
-    # dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
-    # r = np.full(2000, float(center_with_radius[3]))
-    # points = center_with_radius[:3] + dirs * r[:,None]
-    # atualização dos pontos da esfera para o display
     shared_mem['latest_sphere_points'] = points
 
     # guardar os primeiros 3 snapshots (para menu final)

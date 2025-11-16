@@ -53,3 +53,19 @@ Para a visualização, foi utilizada a função VisualizerWithKeyCallback, permi
 ![Resultado ICP personalizado](images/ICP_custom.png) 
 *Alinhamento final usando ICP personalizado.*
 
+Tarefa 3:
+
+A tarefa 3 consiste na otimização de uma esfera englobante que reúne a posição e o raio que melhor cobrem as duas nuvens de pontos, com visualização em tempo real do processo de otimização. A parte inicial do processamento é idêntica à descrita na Tarefa 1.
+O cṍdigo tenta primeiro carregar, quando disponível, uma transformação previamente estimada (ficheiro output_opti.txt) e aplica-a à nuvem fonte, caso contrário usa a nuvem na sua posição inicial. A partir das duas nuvens é construída uma nuvem combinada usada para estimar os parâmetros iniciais da esfera (centro da esfera é definido no centróide da nuven de pontos e o raio corresponde à distância máxima entre o centróide e os pontos). A esfera é representada por uma point cloud gerada aleatoriamente sobre a superfície, permitindo mostrar graficamente a esfera em cada iteração.
+A função objetivo define o erro como a soma dos excessos das distâncias dos pontos ao raio mais um erro que penaliza o tamanho do raio. A otimização é executada com scipy.optimize.least_squares (em paralelo), enquanto a aplicação atualiza em tempo real a point cloud da esfera, permitindo acompanhar a evolução dos parâmetros.
+A interface da otimização permite controlar com a tecla 'C' o esquemas de cor da esfera. Após a conclusão da otimização os parâmetros finais (centro e raio) são guardados em output_opti_sphere.txt e é construído um menu final em PyQt5 permite visualizar as diferentes etapas.
+
+![Menu](images/menu_esfera.png) 
+
+*Interface principal do visualizador.*
+
+![No processo de otimização](images/esfera_tempo_real.png) 
+*Processo de otimização dos parâmetros da esfera englobante.*
+
+![Resultado ICP personalizado](images/esfera_final.png) 
+*Esfera englobante otimizada.*
