@@ -227,7 +227,6 @@ def objective_opt(params, shared_local):
 # ---------- THREAD DE OTIMIZAÇÃO ----------
 def run_optimization(initial_params, shared_local):
     print("Iniciando otimização...")
-    # Usar tolerâncias mais permissivas e loss robusta para não parar cedo
     res = least_squares(
         partial(objective_opt, shared_local=shared_local),
         initial_params,
